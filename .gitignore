@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# audios de trabajo del cliente, no forman parte del código
+/Ivan/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
