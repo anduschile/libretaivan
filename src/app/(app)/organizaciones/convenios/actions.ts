@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, formatISO, parseISO } from "date-fns";
+import { esFeriadoIrrenunciable } from "@/lib/date";
 
 export type ConvenioFormState = {
   error: string | null;
@@ -80,8 +81,9 @@ export async function crearConvenio(
   const fechas: string[] = [];
   for (let d = inicio; d <= fin; d = addDays(d, 1)) {
     const isoDow = d.getDay() === 0 ? 7 : d.getDay();
-    if (diasSemana.includes(isoDow)) {
-      fechas.push(formatISO(d, { representation: "date" }));
+    const fechaStr = formatISO(d, { representation: "date" });
+    if (diasSemana.includes(isoDow) && !esFeriadoIrrenunciable(fechaStr)) {
+      fechas.push(fechaStr);
     }
   }
 

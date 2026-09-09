@@ -20,6 +20,42 @@ function minutosATexto(min: number): string {
   return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 }
 
+// Un bloqueo sin hora_inicio/hora_fin (feriados, cierres totales) sigue ocupando el día
+// completo — retrocompatible con los bloqueos existentes antes de la migración 0015.
+function bloqueaMinuto(bloqueo: RdBloqueo, filaMin: number): boolean {
+  if (!bloqueo.hora_inicio || !bloqueo.hora_fin) return true;
+  return minutos(bloqueo.hora_inicio) <= filaMin && minutos(bloqueo.hora_fin) > filaMin;
+}
+
+// Fusiona visualmente asignaciones consecutivas (sin hueco entre ellas) de la misma
+// entidad y actividad en un solo bloque continuo (ver bloque-grid.tsx).
+function agruparConsecutivas(items: AsignacionConDetalle[]): AsignacionConDetalle[][] {
+  const ordenadas = [...items].sort((a, b) => (a.hora_inicio < b.hora_inicio ? -1 : 1));
+  const grupos: AsignacionConDetalle[][] = [];
+  for (const a of ordenadas) {
+    const grupoActual = grupos[grupos.length - 1];
+    const anterior = grupoActual?.[grupoActual.length - 1];
+    if (anterior && anterior.entidad_id === a.entidad_id && anterior.actividad === a.actividad && anterior.hora_fin === a.hora_inicio) {
+      grupoActual.push(a);
+    } else {
+      grupos.push([a]);
+    }
+  }
+  return grupos;
+}
+
+// Agrupa asignaciones "espejo" que comparten exactamente el mismo horario en un solo
+// bloque visual con los nombres de todas las entidades (ver bloque-grid.tsx).
+function agruparPorHorario(items: AsignacionConDetalle[]): AsignacionConDetalle[][] {
+  const grupos = new Map<string, AsignacionConDetalle[]>();
+  for (const a of items) {
+    const key = `${a.hora_inicio}|${a.hora_fin}`;
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key)!.push(a);
+  }
+  return [...grupos.values()];
+}
+
 const DIA_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
 
 function etiquetaDia(fecha: string, i: number): string {
@@ -31,16 +67,20 @@ export function SemanaGrid({
   dias,
   espacioId,
   asignaciones,
+  asignacionesEspejo,
   bloqueos,
   recintoId,
   onSlotClick,
+  onAsignacionClick,
 }: {
   dias: string[];
   espacioId: string;
   asignaciones: AsignacionConDetalle[];
+  asignacionesEspejo: AsignacionConDetalle[];
   bloqueos: RdBloqueo[];
   recintoId: string;
   onSlotClick: (fecha: string, horaInicio: string, horaFinDisponibleHasta: string) => void;
+  onAsignacionClick: (asignacion: AsignacionConDetalle) => void;
 }) {
   const hoy = hoyISO();
   const horasEtiqueta = Array.from({ length: FILAS }, (_, i) => HORA_INICIO_GRILLA + i * PASO_MIN);
@@ -54,8 +94,12 @@ export function SemanaGrid({
     );
   }
 
+  function espejosDe(fecha: string): AsignacionConDetalle[] {
+    return asignacionesEspejo.filter((a) => a.fecha === fecha);
+  }
+
   function finDisponibleDesde(fecha: string, desdeMin: number): number {
-    const siguientes = asignaciones
+    const siguientes = [...asignaciones, ...asignacionesEspejo]
       .filter((a) => a.fecha === fecha && minutos(a.hora_inicio) >= desdeMin)
       .map((a) => minutos(a.hora_inicio));
     return siguientes.length > 0 ? Math.min(...siguientes, HORA_FIN_GRILLA) : HORA_FIN_GRILLA;
@@ -95,29 +139,28 @@ export function SemanaGrid({
 
         {dias.map((fecha, i) => {
           const bloqueo = bloqueoDe(fecha);
+          const espejos = espejosDe(fecha);
           return Array.from({ length: FILAS }, (_, fila) => {
-            const horaInicioSlot = minutosATexto(HORA_INICIO_GRILLA + fila * PASO_MIN);
+            const filaMin = HORA_INICIO_GRILLA + fila * PASO_MIN;
+            const horaInicioSlot = minutosATexto(filaMin);
             const ocupado = asignaciones.some(
-              (a) =>
-                a.fecha === fecha &&
-                minutos(a.hora_inicio) <= HORA_INICIO_GRILLA + fila * PASO_MIN &&
-                minutos(a.hora_fin) > HORA_INICIO_GRILLA + fila * PASO_MIN
+              (a) => a.fecha === fecha && minutos(a.hora_inicio) <= filaMin && minutos(a.hora_fin) > filaMin
             );
+            const ocupadoPorEspejo = espejos.some(
+              (a) => minutos(a.hora_inicio) <= filaMin && minutos(a.hora_fin) > filaMin
+            );
+            const bloqueadoAhora = Boolean(bloqueo) && bloqueaMinuto(bloqueo!, filaMin);
+            const disponible = !bloqueadoAhora && !ocupado && !ocupadoPorEspejo;
             return (
               <div
                 key={`${fecha}-${fila}`}
                 className={`border-l border-t border-[var(--color-border)] ${
-                  !bloqueo && !ocupado ? "cursor-pointer hover:bg-[var(--color-accent-soft)]" : ""
+                  disponible ? "cursor-pointer hover:bg-[var(--color-accent-soft)]" : ""
                 }`}
                 style={{ gridColumn: i + 2, gridRow: fila + 2 }}
                 onClick={
-                  !bloqueo && !ocupado
-                    ? () =>
-                        onSlotClick(
-                          fecha,
-                          horaInicioSlot,
-                          minutosATexto(finDisponibleDesde(fecha, HORA_INICIO_GRILLA + fila * PASO_MIN))
-                        )
+                  disponible
+                    ? () => onSlotClick(fecha, horaInicioSlot, minutosATexto(finDisponibleDesde(fecha, filaMin)))
                     : undefined
                 }
               />
@@ -128,42 +171,91 @@ export function SemanaGrid({
         {dias.map((fecha, i) => {
           const bloqueo = bloqueoDe(fecha);
           if (!bloqueo) return null;
+          const tieneHorario = Boolean(bloqueo.hora_inicio && bloqueo.hora_fin);
+          const inicio = tieneHorario ? Math.max(minutos(bloqueo.hora_inicio!), HORA_INICIO_GRILLA) : HORA_INICIO_GRILLA;
+          const fin = tieneHorario ? Math.min(minutos(bloqueo.hora_fin!), HORA_FIN_GRILLA) : HORA_FIN_GRILLA;
+          const filaInicio = Math.floor((inicio - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+          const filaFin = Math.ceil((fin - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
           return (
             <div
               key={`bloqueo-${fecha}`}
-              className="m-0.5 flex flex-col items-center justify-center gap-1 rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]"
-              style={{ gridColumn: i + 2, gridRow: `2 / ${FILAS + 2}` }}
+              title={bloqueo.descripcion ?? BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}
+              className="m-0.5 flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]"
+              style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
             >
-              <Lock size={13} className={TIPO_COLOR_TEXTO.bloqueo} />
-              <span className="font-medium">{BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}</span>
+              <Lock size={13} className={`shrink-0 ${TIPO_COLOR_TEXTO.bloqueo}`} />
+              <span className="w-full truncate font-medium">{BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}</span>
             </div>
           );
         })}
 
-        {asignaciones.map((a) => {
-          const columna = dias.indexOf(a.fecha);
-          if (columna === -1) return null;
-          const inicio = Math.max(minutos(a.hora_inicio), HORA_INICIO_GRILLA);
-          const fin = Math.min(minutos(a.hora_fin), HORA_FIN_GRILLA);
-          if (fin <= inicio) return null;
-          const filaInicio = Math.floor((inicio - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
-          const filaFin = Math.ceil((fin - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+        {/* Espejo: este espacio se ve ocupado porque un espacio relacionado (ej. la cancha
+            principal completa, o la otra transversal) tiene una asignación confirmada. */}
+        {dias.map((fecha, i) => {
+          const bloqueo = bloqueoDe(fecha);
+          const grupos = agruparPorHorario(espejosDe(fecha));
+          return grupos.map((grupo) => {
+            const primero = grupo[0];
+            const inicio = Math.max(minutos(primero.hora_inicio), HORA_INICIO_GRILLA);
+            const fin = Math.min(minutos(primero.hora_fin), HORA_FIN_GRILLA);
+            if (fin <= inicio) return null;
+            const tapadoPorPropio = asignaciones.some(
+              (a) => a.fecha === fecha && minutos(a.hora_inicio) < fin && inicio < minutos(a.hora_fin)
+            );
+            if (tapadoPorPropio) return null;
+            if (bloqueo && bloqueaMinuto(bloqueo, inicio)) return null;
+            const filaInicio = Math.floor((inicio - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+            const filaFin = Math.ceil((fin - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+            const nombres = grupo.map((a) => a.entidad?.nombre ?? "—").join(" y ");
+            return (
+              <div
+                key={`espejo-${fecha}-${primero.hora_inicio}`}
+                className="m-0.5 flex min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]"
+                style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
+                title={`Ocupada — cancha dividida en uso: ${nombres}`}
+                onClick={() =>
+                  window.alert(
+                    `Este espacio no está disponible: la cancha está dividida y en uso por ${nombres} de ${horaCorta(
+                      primero.hora_inicio
+                    )} a ${horaCorta(primero.hora_fin)}.`
+                  )
+                }
+              >
+                <Lock size={12} className="shrink-0 text-gray-400" />
+                <span className="w-full truncate font-medium">Ocupada</span>
+              </div>
+            );
+          });
+        })}
 
-          return (
-            <div
-              key={a.id}
-              className={`m-0.5 overflow-hidden rounded-lg border-l-4 bg-[var(--color-accent-soft)] px-1.5 py-1 text-[10px] leading-tight ${
-                a.entidad ? colorBordeEntidad(a.entidad.tipo) : "border-l-gray-400"
-              }`}
-              style={{ gridColumn: columna + 2, gridRow: `${filaInicio} / ${filaFin}` }}
-              title={`${a.entidad?.nombre ?? ""} · ${horaCorta(a.hora_inicio)}–${horaCorta(a.hora_fin)}`}
-            >
-              <p className="truncate font-medium text-[var(--color-text)]">{a.entidad?.nombre ?? "—"}</p>
-              <p className="truncate text-[var(--color-text-muted)]">
-                {horaCorta(a.hora_inicio)}–{horaCorta(a.hora_fin)}
-              </p>
-            </div>
-          );
+        {dias.map((fecha, i) => {
+          const grupos = agruparConsecutivas(asignaciones.filter((a) => a.fecha === fecha));
+          return grupos.map((grupo) => {
+            const primero = grupo[0];
+            const ultimo = grupo[grupo.length - 1];
+            const inicio = Math.max(minutos(primero.hora_inicio), HORA_INICIO_GRILLA);
+            const fin = Math.min(minutos(ultimo.hora_fin), HORA_FIN_GRILLA);
+            if (fin <= inicio) return null;
+            const filaInicio = Math.floor((inicio - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+            const filaFin = Math.ceil((fin - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
+
+            return (
+              <div
+                key={primero.id}
+                className={`m-0.5 cursor-pointer overflow-hidden rounded-lg border-l-4 bg-[var(--color-accent-soft)] px-1.5 py-1 text-[10px] leading-tight hover:brightness-95 ${
+                  primero.entidad ? colorBordeEntidad(primero.entidad.tipo) : "border-l-gray-400"
+                }`}
+                style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
+                title={`${primero.entidad?.nombre ?? ""} · ${horaCorta(primero.hora_inicio)}–${horaCorta(ultimo.hora_fin)} (clic para editar)`}
+                onClick={() => onAsignacionClick(primero)}
+              >
+                <p className="truncate font-medium text-[var(--color-text)]">{primero.entidad?.nombre ?? "—"}</p>
+                <p className="truncate text-[var(--color-text-muted)]">
+                  {horaCorta(primero.hora_inicio)}–{horaCorta(ultimo.hora_fin)}
+                </p>
+              </div>
+            );
+          });
         })}
       </div>
     </div>

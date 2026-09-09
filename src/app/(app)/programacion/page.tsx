@@ -6,6 +6,7 @@ import {
   getAsignacionesEntreFechas,
   getHorarios,
   getBloqueosEntreFechas,
+  getEspacioConflictos,
 } from "@/lib/data/queries";
 import { hoyISO, rangoSemana, formatFechaLarga, formatFechaCorta, diaSemanaISOFromDate } from "@/lib/date";
 import { calcularDisponibilidad } from "@/lib/disponibilidad";
@@ -29,7 +30,11 @@ export default async function ProgramacionPage({
   const fecha = params.fecha ?? hoyISO();
   const vista: "dia" | "semana" = params.vista === "semana" ? "semana" : "dia";
 
-  const [espacios, entidades] = await Promise.all([getEspacios(), getEntidades()]);
+  const [espacios, entidades, conflictos] = await Promise.all([
+    getEspacios(),
+    getEntidades(),
+    getEspacioConflictos(),
+  ]);
   const espaciosDelRecinto = espacios.filter((e) => e.recinto_id === recintoId);
   const espacioIds = espaciosDelRecinto.map((e) => e.id);
 
@@ -72,10 +77,12 @@ export default async function ProgramacionPage({
     );
     const horariosDelDia = horariosRecinto.filter((h) => h.dia_semana === diaSemana && h.etiqueta === "normal");
 
-    const bloqueadas = new Set<string>();
+    const bloqueosPorEspacio = new Map<string, typeof bloqueosDelRecinto>();
     for (const b of bloqueosDelRecinto) {
-      if (b.espacio_id) bloqueadas.add(b.espacio_id);
-      else if (b.recinto_id === recintoId) espacioIds.forEach((id) => bloqueadas.add(id));
+      const idsAfectados = b.espacio_id ? [b.espacio_id] : b.recinto_id === recintoId ? espacioIds : [];
+      for (const id of idsAfectados) {
+        bloqueosPorEspacio.set(id, [...(bloqueosPorEspacio.get(id) ?? []), b]);
+      }
     }
 
     const disponibilidad = Object.fromEntries(
@@ -83,7 +90,7 @@ export default async function ProgramacionPage({
         espacios: espaciosDelRecinto,
         horarios: horariosDelDia,
         ocupadas: asignacionesDelDia,
-        bloqueadas,
+        bloqueosPorEspacio,
       })
     );
 
@@ -100,14 +107,23 @@ export default async function ProgramacionPage({
           espaciosDelRecinto,
           asignaciones: asignacionesDelDia,
           bloqueos: bloqueosDelRecinto,
+          conflictos,
           disponibilidad,
           fechaPasada,
         }}
       />
     );
   } else {
-    const [asignacionesSemanaEspacio, bloqueosSemana] = await Promise.all([
+    // Espacios "hermanos" del espacio seleccionado (ej. las transversales de la cancha
+    // principal): sus asignaciones se traen aparte para poder mostrar el espacio actual
+    // como "ocupado — cancha dividida" cuando corresponda (ver bloque-grid.tsx / item 2).
+    const relacionadosIds = conflictos
+      .filter((c) => c.espacio_a === espacioSemanaId || c.espacio_b === espacioSemanaId)
+      .map((c) => (c.espacio_a === espacioSemanaId ? c.espacio_b : c.espacio_a));
+
+    const [asignacionesSemanaEspacio, asignacionesEspejo, bloqueosSemana] = await Promise.all([
       getAsignacionesEntreFechas(dias[0], dias[6], espacioSemanaId ? [espacioSemanaId] : []),
+      getAsignacionesEntreFechas(dias[0], dias[6], relacionadosIds),
       getBloqueosEntreFechas(dias[0], dias[6]),
     ]);
     const bloqueosDelEspacio = bloqueosSemana.filter(
@@ -129,6 +145,7 @@ export default async function ProgramacionPage({
             dias,
             espacioSemanaId,
             asignaciones: asignacionesSemanaEspacio,
+            asignacionesEspejo,
             bloqueos: bloqueosDelEspacio,
           }}
         />

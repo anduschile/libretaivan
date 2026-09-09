@@ -8,13 +8,14 @@ import { SemanaGrid } from "./semana-grid";
 import { AsignarSheet, type AsignarPrefill } from "./asignar-sheet";
 import { sugerirHoraFin, type VentanaDisponible } from "@/lib/disponibilidad";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
-import type { RdBloqueo, RdEntidad, RdEspacio, RdRecinto } from "@/lib/db/types";
+import type { RdBloqueo, RdEntidad, RdEspacio, RdEspacioConflicto, RdRecinto } from "@/lib/db/types";
 
 type DiaProps = {
   vista: "dia";
   espaciosDelRecinto: RdEspacio[];
   asignaciones: AsignacionConDetalle[];
   bloqueos: RdBloqueo[];
+  conflictos: RdEspacioConflicto[];
   disponibilidad: Record<string, VentanaDisponible[]>;
   fechaPasada: boolean;
 };
@@ -24,6 +25,7 @@ type SemanaProps = {
   dias: string[];
   espacioSemanaId: string;
   asignaciones: AsignacionConDetalle[];
+  asignacionesEspejo: AsignacionConDetalle[];
   bloqueos: RdBloqueo[];
 };
 
@@ -67,6 +69,24 @@ export function ProgramacionInteractive({
     });
   }
 
+  function abrirEdicion(asignacion: AsignacionConDetalle) {
+    setSheet({
+      open: true,
+      prefill: {
+        recintoId,
+        espacioId: asignacion.espacio_id,
+        fecha: asignacion.fecha,
+        horaInicio: asignacion.hora_inicio.slice(0, 5),
+        horaFin: asignacion.hora_fin.slice(0, 5),
+        asignacionId: asignacion.id,
+        entidadId: asignacion.entidad_id,
+        actividad: asignacion.actividad ?? "",
+        participantesEstimados: asignacion.participantes_estimados,
+        documentoRespaldo: asignacion.documento_respaldo,
+      },
+    });
+  }
+
   return (
     <>
       {vistaProps.vista === "dia" ? (
@@ -75,17 +95,21 @@ export function ProgramacionInteractive({
             espacios={vistaProps.espaciosDelRecinto}
             asignaciones={vistaProps.asignaciones}
             bloqueos={vistaProps.bloqueos}
+            conflictos={vistaProps.conflictos}
             disponibilidad={vistaProps.disponibilidad}
             fechaPasada={vistaProps.fechaPasada}
             recintoId={recintoId}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}
+            onAsignacionClick={abrirEdicion}
           />
           <BloqueGrid
             espacios={vistaProps.espaciosDelRecinto}
             asignaciones={vistaProps.asignaciones}
             bloqueos={vistaProps.bloqueos}
+            conflictos={vistaProps.conflictos}
             recintoId={recintoId}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}
+            onAsignacionClick={abrirEdicion}
           />
         </>
       ) : (
@@ -93,11 +117,13 @@ export function ProgramacionInteractive({
           dias={vistaProps.dias}
           espacioId={vistaProps.espacioSemanaId}
           asignaciones={vistaProps.asignaciones}
+          asignacionesEspejo={vistaProps.asignacionesEspejo}
           bloqueos={vistaProps.bloqueos}
           recintoId={recintoId}
           onSlotClick={(fechaBloque, horaInicio, hasta) =>
             abrirConHueco(vistaProps.espacioSemanaId, fechaBloque, horaInicio, hasta)
           }
+          onAsignacionClick={abrirEdicion}
         />
       )}
 

@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { TimeField } from "@/components/ui/time-field";
 import { useFormAction } from "@/lib/hooks/use-form-action";
-import { crearAsignacion, type FormState } from "./actions";
+import { esFeriadoIrrenunciable } from "@/lib/date";
+import { crearAsignacion, actualizarAsignacion, cancelarAsignacion, type FormState } from "./actions";
 import type { RdEntidad, RdEspacio, RdRecinto } from "@/lib/db/types";
 
 const initialState: FormState = { error: null };
@@ -18,6 +19,12 @@ export type AsignarPrefill = {
   fecha?: string;
   horaInicio?: string;
   horaFin?: string;
+  // Presentes solo en modo edición (clic sobre un bloque ya asignado).
+  asignacionId?: string;
+  entidadId?: string;
+  actividad?: string;
+  participantesEstimados?: number | null;
+  documentoRespaldo?: string | null;
 };
 
 type ConflictoDetalle = {
@@ -49,7 +56,7 @@ export function AsignarSheet({
   prefill?: AsignarPrefill;
 }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Asignar horario">
+    <Sheet open={open} onClose={onClose} title={prefill?.asignacionId ? "Editar asignación" : "Asignar horario"}>
       {/* Se monta solo mientras está abierta: cada apertura arranca con estado limpio
           (a partir de `prefill`) sin necesitar un efecto para resetear campos. */}
       {open && (
@@ -97,17 +104,25 @@ function AsignarSheetForm({
     setEspacioId(espaciosDelRecinto[0]?.id ?? "");
   }
 
-  const [entidadId, setEntidadId] = useState("");
+  const editando = Boolean(prefill?.asignacionId);
+
+  const [entidadId, setEntidadId] = useState(prefill?.entidadId ?? "");
   const [fecha, setFecha] = useState(prefill?.fecha ?? fechaActual);
   const [horaInicio, setHoraInicio] = useState(prefill?.horaInicio ?? "");
   const [horaFin, setHoraFin] = useState(prefill?.horaFin ?? "");
-  const [actividad, setActividad] = useState("");
+  const [actividad, setActividad] = useState(prefill?.actividad ?? "");
   const [conflicto, setConflicto] = useState<ConflictoDetalle | null>(null);
   const [verificando, setVerificando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
-  const { state, pending, submit } = useFormAction(crearAsignacion, initialState, onDone);
+  const { state, pending, submit } = useFormAction(
+    editando ? actualizarAsignacion : crearAsignacion,
+    initialState,
+    onDone
+  );
 
   const camposHorarioCompletos = Boolean(espacioId && fecha && horaInicio && horaFin && horaInicio < horaFin);
+  const esFeriado = Boolean(fecha) && esFeriadoIrrenunciable(fecha);
 
   useEffect(() => {
     if (!camposHorarioCompletos) return;
@@ -117,7 +132,13 @@ function AsignarSheetForm({
       fetch("/api/conflictos/verificar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ espacioId, fecha, horaInicio, horaFin }),
+        body: JSON.stringify({
+          espacioId,
+          fecha,
+          horaInicio,
+          horaFin,
+          excluirAsignacionId: prefill?.asignacionId,
+        }),
         signal: controller.signal,
       })
         .then((r) => r.json())
@@ -129,7 +150,14 @@ function AsignarSheetForm({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [camposHorarioCompletos, espacioId, fecha, horaInicio, horaFin]);
+  }, [camposHorarioCompletos, espacioId, fecha, horaInicio, horaFin, prefill?.asignacionId]);
+
+  function eliminar() {
+    if (!prefill?.asignacionId) return;
+    if (!window.confirm("¿Eliminar esta asignación? Esta acción no se puede deshacer.")) return;
+    setEliminando(true);
+    cancelarAsignacion(prefill.asignacionId).then(onDone);
+  }
 
   const conflictoVisible = camposHorarioCompletos ? conflicto : null;
   const espacioSeleccionado = espacios.find((e) => e.id === espacioId);
@@ -141,6 +169,7 @@ function AsignarSheetForm({
   return (
     <form action={submit} className="flex flex-col gap-4">
       <input type="hidden" name="tipo" value="puntual" />
+      {editando && <input type="hidden" name="asignacion_id" value={prefill!.asignacionId} />}
 
       <Field label="Recinto">
         <select value={recintoId} onChange={(e) => setRecintoId(e.target.value)} className="input">
@@ -200,6 +229,15 @@ function AsignarSheetForm({
         </Field>
       </div>
 
+      {esFeriado && (
+        <div className="flex items-start gap-2 rounded-xl bg-[var(--color-danger-soft)] p-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
+          <p className="text-sm text-[var(--color-danger)]">
+            Este día es feriado irrenunciable, el recinto no opera. Elige otra fecha.
+          </p>
+        </div>
+      )}
+
       {verificando && <p className="text-xs text-[var(--color-text-muted)]">Revisando disponibilidad…</p>}
 
       {conflictoVisible && (
@@ -230,18 +268,37 @@ function AsignarSheetForm({
       )}
 
       <Field label="Participantes estimados (opcional)">
-        <input name="participantes_estimados" type="number" min={0} className="input" />
+        <input
+          name="participantes_estimados"
+          type="number"
+          min={0}
+          defaultValue={prefill?.participantesEstimados ?? undefined}
+          className="input"
+        />
       </Field>
 
       <Field label="Documento de respaldo (opcional)">
-        <input name="documento_respaldo" className="input" />
+        <input name="documento_respaldo" defaultValue={prefill?.documentoRespaldo ?? undefined} className="input" />
       </Field>
 
       {state.error && <p className="text-sm text-[var(--color-danger)]">{state.error}</p>}
 
-      <Button type="submit" disabled={pending || Boolean(conflictoVisible)}>
-        {pending ? "Guardando…" : "Guardar asignación"}
-      </Button>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={pending || eliminando || Boolean(conflictoVisible) || esFeriado} className="flex-1">
+          {pending ? "Guardando…" : editando ? "Guardar cambios" : "Guardar asignación"}
+        </Button>
+        {editando && (
+          <Button
+            type="button"
+            variant="danger"
+            disabled={pending || eliminando}
+            onClick={eliminar}
+            className="flex-1"
+          >
+            {eliminando ? "Eliminando…" : "Eliminar asignación"}
+          </Button>
+        )}
+      </div>
     </form>
   );
 }
