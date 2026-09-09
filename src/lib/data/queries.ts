@@ -93,6 +93,14 @@ export async function getAsignacionesEntreFechas(
   hasta: string,
   espacioIds?: string[]
 ): Promise<AsignacionConDetalle[]> {
+  // `espacioIds` definido pero vacío (ej. un espacio sin relaciones en
+  // rd_espacio_conflicto) significa "ningún espacio calza" — debe devolver cero filas,
+  // no todas. Antes de este chequeo, un array vacío saltaba el filtro `.in()` por
+  // completo y la consulta devolvía TODAS las asignaciones confirmadas de la base sin
+  // acotar por espacio (bug real: la vista de Semana mostraba asignaciones de la Sala
+  // de Uso Múltiple como "espejo" en cualquier otro recinto sin conflictos definidos).
+  if (espacioIds && espacioIds.length === 0) return [];
+
   const supabase = await createClient();
   let query = supabase
     .from("rd_asignacion")
@@ -102,7 +110,7 @@ export async function getAsignacionesEntreFechas(
     .eq("estado", "confirmada")
     .order("fecha")
     .order("hora_inicio");
-  if (espacioIds && espacioIds.length > 0) {
+  if (espacioIds) {
     query = query.in("espacio_id", espacioIds);
   }
   const { data, error } = await query;

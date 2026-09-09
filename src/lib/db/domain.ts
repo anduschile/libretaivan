@@ -18,6 +18,7 @@ export const RECINTO_TIPO_LABEL: Record<RecintoTipo, string> = {
   cancha: "Cancha",
   estadio: "Estadio",
   sala_multiple: "Sala de uso múltiple",
+  piscina: "Piscina",
 };
 
 // Agrupación de recintos para el selector de Programación (con 9+ recintos y nombres
@@ -28,9 +29,10 @@ export const RECINTO_GRUPO: Record<RecintoTipo, string> = {
   polideportivo: "Canchas y estadios",
   gimnasio: "Gimnasios",
   sala_multiple: "Salas",
+  piscina: "Piscinas",
 };
 
-export const ORDEN_GRUPOS_RECINTO = ["Canchas y estadios", "Gimnasios", "Salas"] as const;
+export const ORDEN_GRUPOS_RECINTO = ["Canchas y estadios", "Gimnasios", "Salas", "Piscinas"] as const;
 
 export const ENTIDAD_TIPO_LABEL: Record<EntidadTipo, string> = {
   club_deportivo: "Club deportivo",
@@ -40,6 +42,7 @@ export const ENTIDAD_TIPO_LABEL: Record<EntidadTipo, string> = {
   empresa: "Empresa",
   particular: "Particular",
   programa_propio: "Programa propio",
+  institucion_publica: "Institución pública",
 };
 
 export const ASIGNACION_TIPO_LABEL: Record<AsignacionTipo, string> = {
@@ -65,6 +68,7 @@ export const TIPO_COLOR_BORDE: Record<EntidadTipo | "bloqueo" | "programa_propio
   organizacion_comunitaria: "border-l-blue-500",
   taller: "border-l-amber-700",
   empresa: "border-l-amber-700",
+  institucion_publica: "border-l-red-700",
   bloqueo: "border-l-gray-400",
 };
 
@@ -83,6 +87,7 @@ export const TIPO_COLOR_TEXTO: Record<EntidadTipo | "bloqueo" | "programa_propio
   organizacion_comunitaria: "text-blue-500",
   taller: "text-amber-700",
   empresa: "text-amber-700",
+  institucion_publica: "text-red-700",
   bloqueo: "text-gray-400",
 };
 
@@ -109,6 +114,7 @@ export const RECINTO_TIPO_ICON: Record<RecintoTipo, ComponentType<LucideProps>> 
   cancha: Volleyball,
   estadio: Landmark,
   sala_multiple: DoorOpen,
+  piscina: Waves,
 };
 
 // Íconos por tipo de espacio (texto libre, no un enum). "media_cancha" comparte ícono
@@ -134,6 +140,7 @@ export const RECINTO_TIPO_CHIP: Record<RecintoTipo, ChipColor> = {
   cancha: { bg: "bg-orange-100", fg: "text-orange-600" },
   estadio: { bg: "bg-teal-100", fg: "text-teal-600" },
   sala_multiple: { bg: "bg-violet-100", fg: "text-violet-600" },
+  piscina: { bg: "bg-cyan-100", fg: "text-cyan-600" },
 };
 
 export const ESPACIO_TIPO_CHIP: Record<string, ChipColor> = {

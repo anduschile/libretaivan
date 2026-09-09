@@ -4,7 +4,7 @@
 // reemplazar por el generado sin tocar el resto del código: los tipos de dominio en
 // `src/lib/db/domain.ts` son los que usa la UI.
 
-export type RecintoTipo = "polideportivo" | "gimnasio" | "cancha" | "estadio" | "sala_multiple";
+export type RecintoTipo = "polideportivo" | "gimnasio" | "cancha" | "estadio" | "sala_multiple" | "piscina";
 export type RecintoPropiedad = "propio" | "cedido";
 export type RecintoEstado = "operativo" | "mantencion" | "cerrado";
 export type EntidadTipo =
@@ -14,7 +14,8 @@ export type EntidadTipo =
   | "taller"
   | "empresa"
   | "particular"
-  | "programa_propio";
+  | "programa_propio"
+  | "institucion_publica";
 export type ConvenioEstado = "activo" | "terminado" | "suspendido";
 export type AsignacionTipo = "puntual" | "convenio" | "evento_municipal";
 export type AsignacionEstado = "confirmada" | "cancelada";
@@ -40,6 +41,7 @@ export interface RdEspacio {
   capacidad_referencial: number | null;
   actividad_fija: string | null;
   activo: boolean;
+  es_secundario: boolean;
   created_at: string;
 }
 
@@ -104,6 +106,7 @@ export interface RdAsignacion {
   actividad: string | null;
   participantes_estimados: number | null;
   documento_respaldo: string | null;
+  observaciones: string | null;
   uso_efectivo: boolean | null;
   creado_por: string | null;
   created_at: string;
@@ -116,6 +119,8 @@ export interface RdBloqueo {
   recinto_id: string | null;
   fecha_desde: string;
   fecha_hasta: string;
+  hora_inicio: string | null;
+  hora_fin: string | null;
   motivo: BloqueoMotivo;
   descripcion: string | null;
   creado_por: string | null;

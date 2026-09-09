@@ -3,6 +3,14 @@ import { addDays, startOfWeek } from "date-fns";
 
 export const ZONA_HORARIA_DEFECTO = "America/Punta_Arenas";
 
+// Feriados irrenunciables en que los recintos no operan. Lista fija de la carga
+// piloto de septiembre 2026 (18 y 19), no un calendario general de feriados chilenos.
+export const FERIADOS_IRRENUNCIBLES = ["2026-09-18", "2026-09-19"];
+
+export function esFeriadoIrrenunciable(fechaISO: string): boolean {
+  return FERIADOS_IRRENUNCIBLES.includes(fechaISO);
+}
+
 export function hoyISO(tz: string = ZONA_HORARIA_DEFECTO): string {
   return formatInTimeZone(new Date(), tz, "yyyy-MM-dd");
 }
@@ -25,6 +33,10 @@ export function rangoSemana(fechaISO: string): { desde: string; hasta: string; d
 
 export function formatFechaISO(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+export function sumarDias(fechaISO: string, dias: number): string {
+  return formatFechaISO(addDays(new Date(`${fechaISO}T00:00:00`), dias));
 }
 
 export function formatFechaCorta(fechaISO: string): string {
