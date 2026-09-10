@@ -69,7 +69,12 @@ export const TIPO_COLOR_BORDE: Record<EntidadTipo | "bloqueo" | "programa_propio
   taller: "border-l-amber-700",
   empresa: "border-l-amber-700",
   institucion_publica: "border-l-red-700",
-  bloqueo: "border-l-gray-400",
+  // Ámbar/warning — distinto del ámbar de particular/taller/empresa (Tailwind
+  // amber-700) y del fondo verde de cualquier bloque de actividad real (siempre
+  // bg-accent-soft), para que un bloqueo de mantención/colación no se confunda con
+  // ninguno de los dos (ver TIPO_COLOR_TEXTO.bloqueo y el fondo bg-warning-soft que
+  // se agrega en los 3 componentes que renderizan bloqueos).
+  bloqueo: "border-l-[var(--color-warning)]",
 };
 
 export function colorBordeEntidad(tipo: EntidadTipo): string {
@@ -88,7 +93,7 @@ export const TIPO_COLOR_TEXTO: Record<EntidadTipo | "bloqueo" | "programa_propio
   taller: "text-amber-700",
   empresa: "text-amber-700",
   institucion_publica: "text-red-700",
-  bloqueo: "text-gray-400",
+  bloqueo: "text-[var(--color-warning)]",
 };
 
 export function colorTextoEntidad(tipo: EntidadTipo): string {

@@ -99,6 +99,7 @@ export function ProgramacionInteractive({
             conflictos={vistaProps.conflictos}
             disponibilidad={vistaProps.disponibilidad}
             fechaPasada={vistaProps.fechaPasada}
+            fecha={fecha}
             recintoId={recintoId}
             tipoRecinto={tipoRecinto}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}
@@ -109,6 +110,7 @@ export function ProgramacionInteractive({
             asignaciones={vistaProps.asignaciones}
             bloqueos={vistaProps.bloqueos}
             conflictos={vistaProps.conflictos}
+            fecha={fecha}
             recintoId={recintoId}
             tipoRecinto={tipoRecinto}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}

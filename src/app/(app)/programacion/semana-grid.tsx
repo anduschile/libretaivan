@@ -1,8 +1,8 @@
 "use client";
 
 import { Lock } from "lucide-react";
-import { colorBordeEntidad, mensajeEspejoCorto, mensajeEspejoLargo, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
-import { horaCorta, hoyISO } from "@/lib/date";
+import { colorBordeEntidad, mensajeEspejoCorto, mensajeEspejoLargo, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_BORDE, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
+import { horaCorta, hoyISO, esFeriadoIrrenunciable } from "@/lib/date";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
 import type { RdBloqueo, RecintoTipo } from "@/lib/db/types";
 
@@ -126,17 +126,37 @@ export function SemanaGrid({
         }}
       >
         <div className="border-b border-[var(--color-border)]" style={{ gridColumn: 1, gridRow: 1 }} />
-        {dias.map((fecha, i) => (
-          <div
-            key={fecha}
-            className={`flex flex-col items-center justify-center border-b border-l border-[var(--color-border)] text-center text-xs font-medium ${
-              fecha === hoy ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]" : "text-[var(--color-text)]"
-            }`}
-            style={{ gridColumn: i + 2, gridRow: 1 }}
-          >
-            <span className="capitalize">{etiquetaDia(fecha, i)}</span>
-          </div>
-        ))}
+        {dias.map((fecha, i) => {
+          const feriado = esFeriadoIrrenunciable(fecha);
+          return (
+            <div
+              key={fecha}
+              className={`flex flex-col items-center justify-center gap-0.5 border-b border-l border-[var(--color-border)] text-center text-xs font-medium ${
+                feriado
+                  ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                  : fecha === hoy
+                    ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                    : "text-[var(--color-text)]"
+              }`}
+              style={{ gridColumn: i + 2, gridRow: 1 }}
+            >
+              <span className="capitalize">{etiquetaDia(fecha, i)}</span>
+              {feriado && <span className="text-[9px] font-normal leading-none">Feriado</span>}
+            </div>
+          );
+        })}
+
+        {/* Feriado irrenunciable: la columna entera se tinta para que sea evidente
+            que el recinto no opera ese día, en vez de simplemente verse vacía. */}
+        {dias.map((fecha, i) =>
+          esFeriadoIrrenunciable(fecha) ? (
+            <div
+              key={`feriado-${fecha}`}
+              className="border-l border-[var(--color-border)] bg-[var(--color-danger-soft)]"
+              style={{ gridColumn: i + 2, gridRow: `2 / ${FILAS + 2}` }}
+            />
+          ) : null
+        )}
 
         {horasEtiqueta
           .filter((min) => min % 60 === 0)
@@ -163,7 +183,7 @@ export function SemanaGrid({
               (a) => minutos(a.hora_inicio) <= filaMin && minutos(a.hora_fin) > filaMin
             );
             const bloqueadoAhora = Boolean(bloqueo) && bloqueaMinuto(bloqueo!, filaMin);
-            const disponible = !bloqueadoAhora && !ocupado && !ocupadoPorEspejo;
+            const disponible = !bloqueadoAhora && !ocupado && !ocupadoPorEspejo && !esFeriadoIrrenunciable(fecha);
             return (
               <div
                 key={`${fecha}-${fila}`}
@@ -193,7 +213,7 @@ export function SemanaGrid({
             <div
               key={`bloqueo-${fecha}`}
               title={bloqueo.descripcion ?? BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}
-              className="m-0.5 flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]"
+              className={`m-0.5 flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-l-4 ${TIPO_COLOR_BORDE.bloqueo} bg-[var(--color-warning-soft)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]`}
               style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
             >
               <Lock size={13} className={`shrink-0 ${TIPO_COLOR_TEXTO.bloqueo}`} />

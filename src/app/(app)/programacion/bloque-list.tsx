@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Clock, Lock, Plus } from "lucide-react";
+import { ChevronDown, Clock, Lock, Plus, CalendarOff } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
   colorBordeEntidad,
@@ -9,10 +9,11 @@ import {
   mensajeEspejoLargo,
   ASIGNACION_TIPO_LABEL,
   BLOQUEO_MOTIVO_LABEL,
+  TIPO_COLOR_BORDE,
   TIPO_COLOR_TEXTO,
 } from "@/lib/db/domain";
 import { EspacioTipoIcon } from "@/components/ui/tipo-icon";
-import { horaCorta } from "@/lib/date";
+import { horaCorta, esFeriadoIrrenunciable } from "@/lib/date";
 import { BloqueActions } from "./bloque-actions";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
 import type { RdBloqueo, RdEspacio, RdEspacioConflicto, RecintoTipo } from "@/lib/db/types";
@@ -37,6 +38,7 @@ export function BloqueList({
   conflictos,
   disponibilidad,
   fechaPasada,
+  fecha,
   recintoId,
   tipoRecinto,
   onSlotClick,
@@ -48,6 +50,7 @@ export function BloqueList({
   conflictos: RdEspacioConflicto[];
   disponibilidad: Record<string, VentanaDisponible[]>;
   fechaPasada: boolean;
+  fecha: string;
   recintoId: string;
   tipoRecinto: RecintoTipo;
   onSlotClick: (espacioId: string, horaInicio: string, horaFinDisponibleHasta: string) => void;
@@ -57,12 +60,24 @@ export function BloqueList({
   // asignaciones el día visible se muestra colapsado (fila compacta con botón para
   // expandir) en vez del bloque completo. No persiste entre días a propósito.
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  const feriado = esFeriadoIrrenunciable(fecha);
 
   if (espacios.length === 0) {
     return (
       <p className="px-4 py-6 text-sm text-[var(--color-text-muted)] desktop:hidden">
         Este recinto todavía no tiene espacios.
       </p>
+    );
+  }
+
+  if (feriado) {
+    return (
+      <div className="px-4 py-2 desktop:hidden">
+        <div className="flex items-center gap-2 rounded-xl bg-[var(--color-danger-soft)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger)]">
+          <CalendarOff size={16} className="shrink-0" />
+          Feriado irrenunciable — el recinto no opera hoy.
+        </div>
+      </div>
     );
   }
 
@@ -116,7 +131,12 @@ export function BloqueList({
             </div>
             <div className="flex flex-col gap-2">
               {bloqueo && (
-                <Card borderColorClass="border-l-gray-400" className="flex items-start gap-3">
+                // No usa <Card> acá: Card fija bg-surface en su propio className, y
+                // no hay garantía de que un bg-[...] agregado después lo pise en el
+                // CSS generado — se arma el mismo look a mano con el fondo correcto.
+                <div
+                  className={`flex items-start gap-3 rounded-2xl border border-[var(--color-border)] border-l-4 ${TIPO_COLOR_BORDE.bloqueo} bg-[var(--color-warning-soft)] p-4`}
+                >
                   <Lock size={16} className={`mt-0.5 shrink-0 ${TIPO_COLOR_TEXTO.bloqueo}`} />
                   <p className="text-sm font-medium text-[var(--color-text)]" title={bloqueo.descripcion ?? undefined}>
                     Bloqueado{bloqueo.hora_inicio && bloqueo.hora_fin
@@ -124,7 +144,7 @@ export function BloqueList({
                       : " (día completo)"}{" "}
                     — {BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}
                   </p>
-                </Card>
+                </div>
               )}
 
               {!bloqueoDiaCompleto &&

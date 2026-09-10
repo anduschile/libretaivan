@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Lock } from "lucide-react";
-import { colorBordeEntidad, mensajeEspejoCorto, mensajeEspejoLargo, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
-import { horaCorta } from "@/lib/date";
+import { ChevronRight, Lock, CalendarOff } from "lucide-react";
+import { colorBordeEntidad, mensajeEspejoCorto, mensajeEspejoLargo, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_BORDE, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
+import { horaCorta, esFeriadoIrrenunciable } from "@/lib/date";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
 import type { RdBloqueo, RdEspacio, RdEspacioConflicto, RecintoTipo } from "@/lib/db/types";
 
@@ -78,6 +78,7 @@ export function BloqueGrid({
   conflictos,
   recintoId,
   tipoRecinto,
+  fecha,
   onSlotClick,
   onAsignacionClick,
 }: {
@@ -87,9 +88,11 @@ export function BloqueGrid({
   conflictos: RdEspacioConflicto[];
   recintoId: string;
   tipoRecinto: RecintoTipo;
+  fecha: string;
   onSlotClick: (espacioId: string, horaInicio: string, horaFinDisponibleHasta: string) => void;
   onAsignacionClick: (asignacion: AsignacionConDetalle) => void;
 }) {
+  const feriado = esFeriadoIrrenunciable(fecha);
   // Espacios de uso secundario (ej. la Cancha chica de un estadio) se muestran
   // colapsados — franja angosta con un botón para expandir — cuando no tienen ninguna
   // asignación el día visible. Se reevalúa en cada render (día distinto = props
@@ -135,6 +138,17 @@ export function BloqueGrid({
       )
       .map((a) => minutos(a.hora_inicio));
     return siguientes.length > 0 ? Math.min(...siguientes, HORA_FIN_GRILLA) : HORA_FIN_GRILLA;
+  }
+
+  if (feriado) {
+    return (
+      <div className="hidden px-8 py-4 desktop:block">
+        <div className="flex items-center gap-2 rounded-xl bg-[var(--color-danger-soft)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger)]">
+          <CalendarOff size={16} className="shrink-0" />
+          Feriado irrenunciable — el recinto no opera hoy.
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -237,7 +251,7 @@ export function BloqueGrid({
             <div
               key={`bloqueo-${e.id}`}
               title={bloqueo.descripcion ?? BLOQUEO_MOTIVO_LABEL[bloqueo.motivo]}
-              className="m-0.5 flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-2 py-1 text-center text-[11px] text-[var(--color-text-muted)]"
+              className={`m-0.5 flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border-l-4 ${TIPO_COLOR_BORDE.bloqueo} bg-[var(--color-warning-soft)] px-2 py-1 text-center text-[11px] text-[var(--color-text-muted)]`}
               style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
             >
               <Lock size={14} className={`shrink-0 ${TIPO_COLOR_TEXTO.bloqueo}`} />
