@@ -28,7 +28,10 @@ export default async function ProgramacionPage({
   const recintos = await getRecintos();
   const recintoId = params.recinto ?? recintos[0]?.id ?? "";
   const fecha = params.fecha ?? hoyISO();
-  const vista: "dia" | "semana" = params.vista === "semana" ? "semana" : "dia";
+  // Por defecto abre en Semana (mejor panorama general, sobre todo en el celular) —
+  // el toggle Día/Semana sigue disponible para cambiar. Un ?vista=dia explícito en la
+  // URL mantiene la vista de Día (ej. al volver de un enlace que ya la fijó).
+  const vista: "dia" | "semana" = params.vista === "dia" ? "dia" : "semana";
 
   const [espacios, entidades, conflictos] = await Promise.all([
     getEspacios(),
