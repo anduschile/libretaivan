@@ -1,166 +1,158 @@
 import "server-only";
+import { hoyISO, hoyDiaSemanaISO, esFeriadoIrrenunciable, minutosEntre, horaCorta } from "@/lib/date";
 import { createClient } from "@/lib/supabase/server";
-import { hoyISO, hoyDiaSemanaISO, minutosEntre } from "@/lib/date";
-import type { RdBloqueo, RdRecinto } from "@/lib/db/types";
+import { getRecintos, getEspacios, getAsignacionesParaEstadisticas, getAsignacionesEntreFechas, getBloqueosEntreFechas } from "@/lib/data/queries";
+import { agruparPorRecinto, type FilaEstadistica } from "@/lib/estadisticas";
+import type { BloqueoMotivo, EntidadTipo, RdEspacio, RdRecinto } from "@/lib/db/types";
 
-export type AlertaHoy =
-  | { tipo: "bloqueo"; bloqueo: RdBloqueo; recintoNombre: string | null; espacioNombre: string | null }
-  | {
-      tipo: "uso_sin_registrar";
-      asignacionId: string;
-      fecha: string;
-      espacioNombre: string;
-      entidadNombre: string;
-    }
-  | {
-      tipo: "directiva_vencida";
-      entidadId: string;
-      entidadNombre: string;
-      vigenciaDirectiva: string;
-    };
+export type BloqueoHoy = {
+  id: string;
+  motivo: BloqueoMotivo;
+  descripcion: string | null;
+  horaInicio: string | null;
+  horaFin: string | null;
+  recintoNombre: string;
+  espacioNombres: string[];
+};
 
-export type ResumenRecintoHoy = {
-  recinto: RdRecinto;
-  bloquesHoy: number;
-  tieneBloqueo: boolean;
+export type AgendaItemHoy = {
+  id: string;
+  horaInicio: string;
+  horaFin: string;
+  entidadNombre: string;
+  entidadTipo: EntidadTipo | null;
+  actividad: string | null;
+  recintoId: string;
+  recintoNombre: string;
+  espacioNombre: string;
 };
 
 export type ResumenHoy = {
   fecha: string;
-  bloquesHoy: number;
-  organizacionesActivas: number;
-  ocupacionPorcentaje: number;
-  alertas: AlertaHoy[];
-  porRecinto: ResumenRecintoHoy[];
+  esFeriado: boolean;
+  horasOcupadas: number;
+  horasFuncionamiento: number;
+  recintosActivos: number;
+  totalRecintos: number;
+  ranking: FilaEstadistica[];
+  bloqueos: BloqueoHoy[];
+  agenda: AgendaItemHoy[];
 };
 
+// Tope del mini-ranking "recintos con más movimiento hoy" — es un primer vistazo,
+// no la lista completa (esa ya existe, agrupada, en el panel de Estadísticas).
+const LIMITE_RANKING = 5;
+
 export async function getResumenHoy(): Promise<ResumenHoy> {
-  const supabase = await createClient();
   const fecha = hoyISO();
   const diaSemana = hoyDiaSemanaISO();
+  const esFeriado = esFeriadoIrrenunciable(fecha);
+  const supabase = await createClient();
 
-  const [{ data: recintos }, { data: espacios }, { data: horarios }, { data: asignacionesHoy }, { data: bloqueosHoy }] =
+  const [recintos, espacios, filasEstadisticas, asignacionesHoy, bloqueosHoy, { data: horariosHoy, error: errorHorarios }] =
     await Promise.all([
-      supabase.from("rd_recinto").select("*").order("nombre"),
-      supabase.from("rd_espacio").select("id, recinto_id, nombre, activo").eq("activo", true),
-      supabase.from("rd_horario_operacion").select("*").eq("dia_semana", diaSemana).eq("etiqueta", "normal"),
+      getRecintos(),
+      getEspacios(),
+      // Misma agregación que usa el panel de Estadísticas (cada fila = 1 hora
+      // ocupada, ver getAsignacionesParaEstadisticas), acotada a hoy — así el
+      // ranking y el total de horas de esta página nunca pueden desalinearse de
+      // lo que muestra Estadísticas si se filtrara por el día de hoy.
+      getAsignacionesParaEstadisticas(fecha, fecha),
+      getAsignacionesEntreFechas(fecha, fecha),
+      getBloqueosEntreFechas(fecha, fecha),
       supabase
-        .from("rd_asignacion")
-        .select("id, espacio_id, entidad_id, hora_inicio, hora_fin, uso_efectivo, espacio:rd_espacio(nombre, recinto_id), entidad:rd_entidad(nombre)")
-        .eq("fecha", fecha)
-        .eq("estado", "confirmada"),
-      supabase.from("rd_bloqueo").select("*").lte("fecha_desde", fecha).gte("fecha_hasta", fecha),
+        .from("rd_horario_operacion")
+        .select("recinto_id, hora_apertura, hora_cierre")
+        .eq("dia_semana", diaSemana)
+        .eq("etiqueta", "normal")
+        .not("recinto_id", "is", null),
     ]);
+  if (errorHorarios) throw errorHorarios;
 
-  const listaRecintos = recintos ?? [];
-  const listaEspacios = espacios ?? [];
-  const listaHorarios = horarios ?? [];
-  const listaAsignaciones = (asignacionesHoy ?? []) as unknown as Array<{
-    id: string;
-    espacio_id: string;
-    entidad_id: string;
-    hora_inicio: string;
-    hora_fin: string;
-    uso_efectivo: boolean | null;
-    espacio: { nombre: string; recinto_id: string } | null;
-    entidad: { nombre: string } | null;
-  }>;
-  const listaBloqueos = (bloqueosHoy ?? []) as RdBloqueo[];
+  const recintoPorId = new Map(recintos.map((r) => [r.id, r]));
 
-  // % de ocupación: horas reservadas hoy / horas disponibles hoy (horario normal), sobre espacios activos
-  const minutosDisponiblesPorRecinto = new Map<string, number>();
-  for (const h of listaHorarios) {
-    if (!h.recinto_id) continue;
-    const minutos = minutosEntre(h.hora_apertura, h.hora_cierre);
-    const espaciosDelRecinto = listaEspacios.filter((e) => e.recinto_id === h.recinto_id).length || 1;
-    minutosDisponiblesPorRecinto.set(
-      h.recinto_id,
-      (minutosDisponiblesPorRecinto.get(h.recinto_id) ?? 0) + minutos * espaciosDelRecinto
-    );
-  }
-  const totalMinutosDisponibles = [...minutosDisponiblesPorRecinto.values()].reduce((a, b) => a + b, 0);
-  const totalMinutosReservados = listaAsignaciones.reduce(
-    (acc, a) => acc + minutosEntre(a.hora_inicio, a.hora_fin),
+  // Horas de funcionamiento hoy: horario de apertura a cierre a nivel de RECINTO
+  // (no multiplicado por cantidad de espacios — con espacios "espejo" como Piscina
+  // Municipal (completa) o Cancha Principal/Transversales eso contaría capacidad
+  // física dos veces). Un recinto sin fila en rd_horario_operacion (ej. Piscina
+  // Municipal, pendiente desde la migración 0010) simplemente no suma acá — vacío
+  // de datos real, no se inventa un horario para rellenarlo.
+  const horasFuncionamiento = (horariosHoy ?? []).reduce(
+    (acc, h) => acc + minutosEntre(h.hora_apertura, h.hora_cierre) / 60,
     0
   );
-  const ocupacionPorcentaje =
-    totalMinutosDisponibles > 0
-      ? Math.round((totalMinutosReservados / totalMinutosDisponibles) * 100)
-      : 0;
 
-  const organizacionesActivas = new Set(listaAsignaciones.map((a) => a.entidad_id)).size;
+  const horasOcupadas = filasEstadisticas.length;
+  const ranking = agruparPorRecinto(filasEstadisticas).slice(0, LIMITE_RANKING);
+  const recintosActivos = new Set(
+    filasEstadisticas.map((f) => f.recinto_id).filter((id): id is string => Boolean(id))
+  ).size;
 
-  // Alertas: bloqueos vigentes hoy, uso_efectivo sin registrar (últimos 14 días) y directivas vencidas con actividad hoy
-  const alertas: AlertaHoy[] = [];
-
-  for (const b of listaBloqueos) {
-    const recinto = listaRecintos.find((r) => r.id === b.recinto_id);
-    const espacio = listaEspacios.find((e) => e.id === b.espacio_id);
-    alertas.push({
-      tipo: "bloqueo",
-      bloqueo: b,
-      recintoNombre: recinto?.nombre ?? null,
-      espacioNombre: espacio?.nombre ?? null,
-    });
-  }
-
-  const hace14Dias = new Date();
-  hace14Dias.setDate(hace14Dias.getDate() - 14);
-  const { data: pendientesUso } = await supabase
-    .from("rd_asignacion")
-    .select("id, fecha, espacio:rd_espacio(nombre), entidad:rd_entidad(nombre)")
-    .is("uso_efectivo", null)
-    .eq("estado", "confirmada")
-    .lt("fecha", fecha)
-    .gte("fecha", hace14Dias.toISOString().slice(0, 10))
-    .order("fecha", { ascending: false })
-    .limit(10);
-
-  for (const p of (pendientesUso ?? []) as unknown as Array<{
-    id: string;
-    fecha: string;
-    espacio: { nombre: string } | null;
-    entidad: { nombre: string } | null;
-  }>) {
-    alertas.push({
-      tipo: "uso_sin_registrar",
-      asignacionId: p.id,
-      fecha: p.fecha,
-      espacioNombre: p.espacio?.nombre ?? "—",
-      entidadNombre: p.entidad?.nombre ?? "—",
-    });
-  }
-
-  const entidadIdsHoy = [...new Set(listaAsignaciones.map((a) => a.entidad_id))];
-  if (entidadIdsHoy.length > 0) {
-    const { data: entidadesHoy } = await supabase
-      .from("rd_entidad")
-      .select("id, nombre, vigencia_directiva")
-      .in("id", entidadIdsHoy)
-      .not("vigencia_directiva", "is", null)
-      .lt("vigencia_directiva", fecha);
-    for (const e of entidadesHoy ?? []) {
-      alertas.push({
-        tipo: "directiva_vencida",
-        entidadId: e.id,
-        entidadNombre: e.nombre,
-        vigenciaDirectiva: e.vigencia_directiva as string,
-      });
-    }
-  }
-
-  const porRecinto: ResumenRecintoHoy[] = listaRecintos.map((r) => ({
-    recinto: r,
-    bloquesHoy: listaAsignaciones.filter((a) => a.espacio?.recinto_id === r.id).length,
-    tieneBloqueo: listaBloqueos.some((b) => b.recinto_id === r.id || listaEspacios.some((e) => e.id === b.espacio_id && e.recinto_id === r.id)),
-  }));
+  const agenda: AgendaItemHoy[] = asignacionesHoy
+    .filter((a) => a.espacio && a.entidad)
+    .map((a) => ({
+      id: a.id,
+      horaInicio: horaCorta(a.hora_inicio),
+      horaFin: horaCorta(a.hora_fin),
+      entidadNombre: a.entidad!.nombre,
+      entidadTipo: a.entidad!.tipo,
+      actividad: a.actividad,
+      recintoId: a.espacio!.recinto_id,
+      recintoNombre: recintoPorId.get(a.espacio!.recinto_id)?.nombre ?? "—",
+      espacioNombre: a.espacio!.nombre,
+    }));
 
   return {
     fecha,
-    bloquesHoy: listaAsignaciones.length,
-    organizacionesActivas,
-    ocupacionPorcentaje,
-    alertas,
-    porRecinto,
+    esFeriado,
+    horasOcupadas,
+    horasFuncionamiento,
+    recintosActivos,
+    totalRecintos: recintos.length,
+    ranking,
+    bloqueos: esFeriado ? [] : agruparBloqueosHoy(bloqueosHoy, recintos, espacios),
+    agenda,
   };
+}
+
+/**
+ * Un bloqueo recurrente (ej. la colación del personal) se carga por separado en
+ * cada espacio de un recinto dividido (ver migraciones 0007/0019) — acá se agrupan
+ * de vuelta en una sola alerta por recinto+horario+motivo, listando los espacios
+ * afectados, en vez de mostrar una tarjeta casi idéntica por cada espacio.
+ */
+function agruparBloqueosHoy(
+  bloqueos: Awaited<ReturnType<typeof getBloqueosEntreFechas>>,
+  recintos: RdRecinto[],
+  espacios: RdEspacio[]
+): BloqueoHoy[] {
+  const recintoPorId = new Map(recintos.map((r) => [r.id, r]));
+  const espacioPorId = new Map(espacios.map((e) => [e.id, e]));
+
+  const grupos = new Map<string, BloqueoHoy>();
+  for (const b of bloqueos) {
+    const espacio = b.espacio_id ? espacioPorId.get(b.espacio_id) : undefined;
+    const recintoId = b.recinto_id ?? espacio?.recinto_id;
+    const recinto = recintoId ? recintoPorId.get(recintoId) : undefined;
+    if (!recinto) continue;
+
+    const clave = [recinto.id, b.hora_inicio ?? "", b.hora_fin ?? "", b.motivo, b.descripcion ?? ""].join("|");
+    const existente = grupos.get(clave);
+    if (existente) {
+      if (espacio && !existente.espacioNombres.includes(espacio.nombre)) {
+        existente.espacioNombres.push(espacio.nombre);
+      }
+    } else {
+      grupos.set(clave, {
+        id: b.id,
+        motivo: b.motivo,
+        descripcion: b.descripcion,
+        horaInicio: b.hora_inicio,
+        horaFin: b.hora_fin,
+        recintoNombre: recinto.nombre,
+        espacioNombres: espacio ? [espacio.nombre] : [],
+      });
+    }
+  }
+  return [...grupos.values()];
 }

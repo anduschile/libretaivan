@@ -1,77 +1,106 @@
 import Link from "next/link";
-import { CalendarClock, PauseCircle, ShieldAlert, Clock, Gauge, Users, Bell } from "lucide-react";
+import { Building2, Clock, PauseCircle, AlertTriangle, BarChart3, CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { getResumenHoy } from "@/lib/data/hoy";
+import { getRecintos, getEspacios, getEntidades } from "@/lib/data/queries";
 import { formatFechaLarga } from "@/lib/date";
-import { RECINTO_TIPO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
-import { RecintoTipoIcon } from "@/components/ui/tipo-icon";
+import { BLOQUEO_MOTIVO_LABEL } from "@/lib/db/domain";
+import { AgendaHoy } from "./agenda-hoy";
+import { AccesoDirectoAsignar } from "./acceso-directo";
 
 export const dynamic = "force-dynamic";
 
 export default async function HoyPage() {
-  const resumen = await getResumenHoy();
+  const [resumen, recintos, espacios, entidades] = await Promise.all([
+    getResumenHoy(),
+    getRecintos(),
+    getEspacios(),
+    getEntidades(),
+  ]);
+
+  const hayAlertas = resumen.esFeriado || resumen.bloqueos.length > 0;
 
   return (
-    <div>
+    <div className="pb-24">
       <PageHeader title="Hoy" subtitle={capitalizar(formatFechaLarga(resumen.fecha))} />
 
-      <div className="grid grid-cols-2 gap-3 px-4 py-4 desktop:grid-cols-4 desktop:px-8">
-        <Kpi icon={Clock} label="Bloques hoy" value={String(resumen.bloquesHoy)} />
-        <Kpi icon={Gauge} label="Ocupación" value={`${resumen.ocupacionPorcentaje}%`} />
-        <Kpi icon={Users} label="Organizaciones activas" value={String(resumen.organizacionesActivas)} />
+      <div className="grid grid-cols-2 gap-3 px-4 py-4 desktop:px-8">
         <Kpi
-          icon={Bell}
-          label="Alertas"
-          value={String(resumen.alertas.length)}
-          highlight={resumen.alertas.length > 0}
+          icon={Clock}
+          label="Horas ocupadas hoy"
+          value={`${resumen.horasOcupadas} / ${resumen.horasFuncionamiento}`}
+        />
+        <Kpi
+          icon={Building2}
+          label="Recintos activos hoy"
+          value={`${resumen.recintosActivos} / ${resumen.totalRecintos}`}
         />
       </div>
 
-      <section className="px-4 desktop:px-8">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Requiere atención</h2>
-        {resumen.alertas.length === 0 ? (
-          <Card className="mb-6 text-sm text-[var(--color-text-muted)]">
-            No hay alertas pendientes por ahora.
-          </Card>
-        ) : (
-          <div className="mb-6 flex flex-col gap-2">
-            {resumen.alertas.map((a, i) => (
-              <AlertaCard key={i} alerta={a} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="px-4 pb-6 desktop:px-8">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Estado por recinto</h2>
-        <div className="flex flex-col gap-2">
-          {resumen.porRecinto.map(({ recinto, bloquesHoy, tieneBloqueo }) => {
-            return (
-              <Link key={recinto.id} href={`/programacion?recinto=${recinto.id}`}>
-                <Card className="flex items-center justify-between">
-                  <div className="flex items-start gap-2.5">
-                    <RecintoTipoIcon tipo={recinto.tipo} size={18} className="mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-[var(--color-text)]">{recinto.nombre}</p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        {RECINTO_TIPO_LABEL[recinto.tipo]} · {bloquesHoy} bloque{bloquesHoy === 1 ? "" : "s"} hoy
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {tieneBloqueo && <Badge variant="warning">Bloqueado</Badge>}
-                    {recinto.estado !== "operativo" && (
-                      <Badge variant="danger">{recinto.estado === "mantencion" ? "Mantención" : "Cerrado"}</Badge>
-                    )}
+      {hayAlertas && (
+        <section className="px-4 pb-4 desktop:px-8">
+          <div className="flex flex-col gap-2">
+            {resumen.esFeriado ? (
+              <Card borderColorClass="border-l-[var(--color-danger)]" className="flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
+                <p className="text-sm font-medium text-[var(--color-text)]">
+                  Hoy es feriado irrenunciable — todos los recintos cerrados.
+                </p>
+              </Card>
+            ) : (
+              resumen.bloqueos.map((b) => (
+                <Card key={b.id} borderColorClass="border-l-gray-400" className="flex items-start gap-3">
+                  <PauseCircle size={18} className="mt-0.5 shrink-0 text-gray-400" />
+                  <div>
+                    <p className="text-sm font-medium text-[var(--color-text)]">
+                      {BLOQUEO_MOTIVO_LABEL[b.motivo]} — {b.recintoNombre}
+                      {b.espacioNombres.length > 0 && ` (${b.espacioNombres.join(", ")})`}
+                    </p>
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      {b.horaInicio && b.horaFin ? `${b.horaInicio.slice(0, 5)}–${b.horaFin.slice(0, 5)}` : "Todo el día"}
+                      {b.descripcion && ` · ${b.descripcion}`}
+                    </p>
                   </div>
                 </Card>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
+      {resumen.ranking.length > 0 && (
+        <section className="px-4 pb-6 desktop:px-8">
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text)]">
+            <BarChart3 size={16} className="text-[var(--color-text-muted)]" />
+            Recintos con más movimiento hoy
+          </h2>
+          <Card className="flex flex-col gap-1">
+            {resumen.ranking.map((r) => (
+              <Link
+                key={r.id}
+                href={`/programacion?recinto=${r.id}&vista=dia&fecha=${resumen.fecha}`}
+                className="-mx-1 flex items-center justify-between gap-3 rounded-lg px-1 py-1.5 hover:bg-[var(--color-bg)]"
+              >
+                <span className="truncate text-sm text-[var(--color-text)]">{r.nombre}</span>
+                <span className="shrink-0 text-sm font-medium text-[var(--color-text-muted)]">
+                  {r.horas} hora{r.horas === 1 ? "" : "s"}
+                </span>
               </Link>
-            );
-          })}
-        </div>
+            ))}
+          </Card>
+        </section>
+      )}
+
+      <section className="pb-6">
+        <h2 className="mb-2 flex items-center gap-1.5 px-4 text-sm font-semibold text-[var(--color-text)] desktop:px-8">
+          <CalendarClock size={16} className="text-[var(--color-text-muted)]" />
+          Agenda del día
+        </h2>
+        <AgendaHoy items={resumen.agenda} fecha={resumen.fecha} />
       </section>
+
+      <AccesoDirectoAsignar recintos={recintos} espacios={espacios} entidades={entidades} fecha={resumen.fecha} />
     </div>
   );
 }
@@ -80,73 +109,18 @@ function Kpi({
   icon: Icon,
   label,
   value,
-  highlight,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
   value: string;
-  highlight?: boolean;
 }) {
   return (
-    <Card className={highlight ? "border-l-4 border-l-[var(--color-danger)]" : undefined}>
-      <div
-        className={`flex items-center gap-1.5 ${
-          highlight ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"
-        }`}
-      >
+    <Card>
+      <div className="flex items-center gap-1.5 text-[var(--color-text-muted)]">
         <Icon size={14} />
         <p className="text-xs">{label}</p>
       </div>
       <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{value}</p>
-    </Card>
-  );
-}
-
-function AlertaCard({ alerta }: { alerta: Awaited<ReturnType<typeof getResumenHoy>>["alertas"][number] }) {
-  if (alerta.tipo === "bloqueo") {
-    return (
-      <Card borderColorClass="border-l-gray-400" className="flex items-start gap-3">
-        <PauseCircle size={18} className={`mt-0.5 shrink-0 ${TIPO_COLOR_TEXTO.bloqueo}`} />
-        <div>
-          <p className="text-sm font-medium text-[var(--color-text)]">
-            Bloqueo — {alerta.recintoNombre ?? alerta.espacioNombre}
-          </p>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            {alerta.bloqueo.motivo} · {alerta.bloqueo.descripcion ?? "sin descripción"} · hasta{" "}
-            {alerta.bloqueo.fecha_hasta}
-          </p>
-        </div>
-      </Card>
-    );
-  }
-
-  if (alerta.tipo === "uso_sin_registrar") {
-    return (
-      <Card borderColorClass="border-l-amber-500" className="flex items-start gap-3">
-        <CalendarClock size={18} className="mt-0.5 shrink-0 text-[var(--color-warning)]" />
-        <div>
-          <p className="text-sm font-medium text-[var(--color-text)]">
-            Falta registrar uso — {alerta.entidadNombre}
-          </p>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            {alerta.espacioNombre} · {alerta.fecha}
-          </p>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card borderColorClass="border-l-[var(--color-danger)]" className="flex items-start gap-3">
-      <ShieldAlert size={18} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
-      <div>
-        <p className="text-sm font-medium text-[var(--color-text)]">
-          Directiva vencida — {alerta.entidadNombre}
-        </p>
-        <p className="text-xs text-[var(--color-text-muted)]">
-          Vencida desde {alerta.vigenciaDirectiva} · tiene actividad hoy
-        </p>
-      </div>
     </Card>
   );
 }
