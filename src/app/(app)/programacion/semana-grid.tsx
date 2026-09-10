@@ -8,8 +8,17 @@ import type { RdBloqueo, RecintoTipo } from "@/lib/db/types";
 
 const HORA_INICIO_GRILLA = 8 * 60; // 08:00
 const HORA_FIN_GRILLA = 23 * 60; // 23:00
-const PASO_MIN = 60; // bloques de una hora completa
+// El negocio agenda en bloques de una hora completa, pero la Piscina tiene franjas
+// divididas que arrancan a la media hora (09:30-10:30). Con filas de una hora la
+// posición de ese bloque no calza con ninguna línea de grilla: floor/ceil lo
+// estiraba a un rango de 09:00 a 11:00 (30 min de más a cada lado) en vez de
+// mostrar el tramo real. Filas de 30 min resuelven esto para cualquier horario —
+// un bloque de una hora alineado a la hora sigue ocupando exactamente 34px (2
+// filas), igual que antes; uno que arranca a la media hora también ocupa 34px,
+// en el lugar correcto.
+const PASO_MIN = 30;
 const FILAS = (HORA_FIN_GRILLA - HORA_INICIO_GRILLA) / PASO_MIN;
+const ALTO_FILA_PX = 17;
 
 function minutos(hora: string): number {
   const [h, m] = hora.slice(0, 5).split(":").map(Number);
@@ -113,7 +122,7 @@ export function SemanaGrid({
         className="grid min-w-[760px] rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]"
         style={{
           gridTemplateColumns: `56px repeat(7, minmax(96px, 1fr))`,
-          gridTemplateRows: `40px repeat(${FILAS}, 34px)`,
+          gridTemplateRows: `40px repeat(${FILAS}, ${ALTO_FILA_PX}px)`,
         }}
       >
         <div className="border-b border-[var(--color-border)]" style={{ gridColumn: 1, gridRow: 1 }} />
@@ -129,15 +138,17 @@ export function SemanaGrid({
           </div>
         ))}
 
-        {horasEtiqueta.map((min, i) => (
-          <div
-            key={min}
-            className="border-t border-[var(--color-border)] pr-2 text-right text-[10px] text-[var(--color-text-muted)]"
-            style={{ gridColumn: 1, gridRow: i + 2 }}
-          >
-            {String(Math.floor(min / 60)).padStart(2, "0")}:00
-          </div>
-        ))}
+        {horasEtiqueta
+          .filter((min) => min % 60 === 0)
+          .map((min) => (
+            <div
+              key={min}
+              className="border-t border-[var(--color-border)] pr-2 text-right text-[10px] text-[var(--color-text-muted)]"
+              style={{ gridColumn: 1, gridRow: `${(min - HORA_INICIO_GRILLA) / PASO_MIN + 2} / span 2` }}
+            >
+              {String(Math.floor(min / 60)).padStart(2, "0")}:00
+            </div>
+          ))}
 
         {dias.map((fecha, i) => {
           const bloqueo = bloqueoDe(fecha);
@@ -156,7 +167,7 @@ export function SemanaGrid({
             return (
               <div
                 key={`${fecha}-${fila}`}
-                className={`border-l border-t border-[var(--color-border)] ${
+                className={`border-l border-[var(--color-border)] ${filaMin % 60 === 0 ? "border-t" : ""} ${
                   disponible ? "cursor-pointer hover:bg-[var(--color-accent-soft)]" : ""
                 }`}
                 style={{ gridColumn: i + 2, gridRow: fila + 2 }}

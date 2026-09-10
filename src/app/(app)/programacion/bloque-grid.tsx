@@ -11,8 +11,15 @@ const ANCHO_COLUMNA_COLAPSADA = "40px";
 
 const HORA_INICIO_GRILLA = 8 * 60; // 08:00
 const HORA_FIN_GRILLA = 23 * 60; // 23:00
-const PASO_MIN = 60; // el negocio solo agenda en bloques de una hora completa
+// El negocio agenda en bloques de una hora completa, pero la Piscina tiene franjas
+// divididas que arrancan a la media hora (09:30-10:30). Con filas de una hora la
+// posición de ese bloque no calzaba con ninguna línea de grilla: floor/ceil lo
+// estiraba a un rango de 09:00 a 11:00 (30 min de más a cada lado) en vez del
+// tramo real (ver semana-grid.tsx, mismo fix). Filas de 30 min resuelven esto para
+// cualquier horario sin cambiar el alto visual de un bloque de una hora alineado.
+const PASO_MIN = 30;
 const FILAS = (HORA_FIN_GRILLA - HORA_INICIO_GRILLA) / PASO_MIN;
+const ALTO_FILA_PX = 17;
 
 function minutos(hora: string): number {
   const [h, m] = hora.slice(0, 5).split(":").map(Number);
@@ -138,7 +145,7 @@ export function BloqueGrid({
           gridTemplateColumns: `72px ${espacios
             .map((e) => (estaColapsado(e) ? ANCHO_COLUMNA_COLAPSADA : "minmax(140px, 1fr)"))
             .join(" ")}`,
-          gridTemplateRows: `40px repeat(${FILAS}, 34px)`,
+          gridTemplateRows: `40px repeat(${FILAS}, ${ALTO_FILA_PX}px)`,
         }}
       >
         {/* Encabezado */}
@@ -167,15 +174,17 @@ export function BloqueGrid({
         )}
 
         {/* Líneas de hora */}
-        {horasEtiqueta.map((min, i) => (
-          <div
-            key={min}
-            className="border-t border-[var(--color-border)] pr-2 text-right text-[10px] text-[var(--color-text-muted)]"
-            style={{ gridColumn: 1, gridRow: i + 2 }}
-          >
-            {String(Math.floor(min / 60)).padStart(2, "0")}:00
-          </div>
-        ))}
+        {horasEtiqueta
+          .filter((min) => min % 60 === 0)
+          .map((min) => (
+            <div
+              key={min}
+              className="border-t border-[var(--color-border)] pr-2 text-right text-[10px] text-[var(--color-text-muted)]"
+              style={{ gridColumn: 1, gridRow: `${(min - HORA_INICIO_GRILLA) / PASO_MIN + 2} / span 2` }}
+            >
+              {String(Math.floor(min / 60)).padStart(2, "0")}:00
+            </div>
+          ))}
 
         {espacios.map((e, i) => {
           if (estaColapsado(e)) {
@@ -203,7 +212,7 @@ export function BloqueGrid({
             return (
               <div
                 key={`${e.id}-${fila}`}
-                className={`border-l border-t border-[var(--color-border)] ${
+                className={`border-l border-[var(--color-border)] ${filaMin % 60 === 0 ? "border-t" : ""} ${
                   disponible ? "cursor-pointer hover:bg-[var(--color-accent-soft)]" : ""
                 }`}
                 style={{ gridColumn: i + 2, gridRow: fila + 2 }}

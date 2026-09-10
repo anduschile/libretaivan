@@ -1,7 +1,48 @@
 import { minutosEntre } from "@/lib/date";
-import type { RdAsignacion, RdBloqueo, RdEspacio, RdHorarioOperacion } from "@/lib/db/types";
+import type { RdAsignacion, RdBloqueo, RdEspacio, RdEspacioConflicto, RdHorarioOperacion } from "@/lib/db/types";
 
 export type VentanaDisponible = { horaInicio: string; horaFin: string };
+
+/**
+ * Ids de los espacios relacionados a uno por rd_espacio_conflicto (ej. Espacio 1 y
+ * Espacio 2 de la Piscina Municipal (completa), o las transversales de la Cancha
+ * Principal) — mismo criterio que ya usa el espejo de asignaciones en page.tsx.
+ */
+export function espaciosRelacionados(
+  espacioId: string,
+  conflictos: Pick<RdEspacioConflicto, "espacio_a" | "espacio_b">[]
+): string[] {
+  return conflictos
+    .filter((c) => c.espacio_a === espacioId || c.espacio_b === espacioId)
+    .map((c) => (c.espacio_a === espacioId ? c.espacio_b : c.espacio_a));
+}
+
+/**
+ * Bloqueos "propios" de un espacio (por espacio_id, o a nivel de recinto completo)
+ * más los de sus espacios relacionados, remapeados como si fueran de este espacio.
+ * Reemplaza a la migración 0024 (revertida): en vez de duplicar filas en
+ * rd_bloqueo cada vez que se carga un bloqueo nuevo, "Piscina Municipal
+ * (completa)" (o cualquier otro espacio "padre" que use este patrón, ej. Cancha
+ * Principal) lo calcula en cada lectura a partir de lo que ya existe en Espacio
+ * 1/2 — un bloqueo mirado desde el espacio padre no necesita distinguir de cuál
+ * mitad viene (a diferencia del espejo de asignaciones, que sí muestra qué
+ * entidad ocupa cada mitad), así que remapearlo basta.
+ */
+export function bloqueosConEspejo(
+  espacioId: string,
+  recintoId: string,
+  bloqueos: RdBloqueo[],
+  conflictos: Pick<RdEspacioConflicto, "espacio_a" | "espacio_b">[]
+): RdBloqueo[] {
+  const relacionados = espaciosRelacionados(espacioId, conflictos);
+  const propios = bloqueos.filter(
+    (b) => b.espacio_id === espacioId || (!b.espacio_id && b.recinto_id === recintoId)
+  );
+  const espejo = bloqueos
+    .filter((b) => b.espacio_id && relacionados.includes(b.espacio_id))
+    .map((b) => ({ ...b, espacio_id: espacioId }));
+  return [...propios, ...espejo];
+}
 
 /**
  * Calcula, para cada espacio, los huecos libres del día (>= minMinutos) entre su

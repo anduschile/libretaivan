@@ -9,7 +9,8 @@ import {
   getEspacioConflictos,
 } from "@/lib/data/queries";
 import { hoyISO, rangoSemana, formatFechaLarga, formatFechaCorta, diaSemanaISOFromDate } from "@/lib/date";
-import { calcularDisponibilidad } from "@/lib/disponibilidad";
+import { calcularDisponibilidad, bloqueosConEspejo } from "@/lib/disponibilidad";
+import type { RdBloqueo } from "@/lib/db/types";
 import { RecintoPicker } from "./recinto-picker";
 import { VistaToggle } from "./vista-toggle";
 import { DateStrip } from "./date-strip";
@@ -48,11 +49,16 @@ export default async function ProgramacionPage({
     count: asignacionesSemanaRecinto.filter((a) => a.fecha === d).length,
   }));
 
+  // Por defecto, dentro de un recinto con un espacio "completo" (ej. Piscina
+  // Municipal (completa)) se abre ese espacio en vez del primero alfabético — es el
+  // que refleja el uso real la mayor parte del tiempo (ver migración 0023).
   const espacioSemanaId =
     vista === "semana"
       ? espaciosDelRecinto.some((e) => e.id === params.espacio)
         ? params.espacio!
-        : (espaciosDelRecinto[0]?.id ?? "")
+        : (espaciosDelRecinto.find((e) => e.nombre.endsWith("(completa)"))?.id ??
+          espaciosDelRecinto[0]?.id ??
+          "")
       : undefined;
 
   let subtitulo: string;
@@ -75,18 +81,17 @@ export default async function ProgramacionPage({
     ]);
 
     const asignacionesDelDia = asignacionesSemanaRecinto.filter((a) => a.fecha === fecha);
-    const bloqueosDelRecinto = bloqueosDia.filter(
-      (b) => b.recinto_id === recintoId || espacioIds.includes(b.espacio_id ?? "")
-    );
     const horariosDelDia = horariosRecinto.filter((h) => h.dia_semana === diaSemana && h.etiqueta === "normal");
 
-    const bloqueosPorEspacio = new Map<string, typeof bloqueosDelRecinto>();
-    for (const b of bloqueosDelRecinto) {
-      const idsAfectados = b.espacio_id ? [b.espacio_id] : b.recinto_id === recintoId ? espacioIds : [];
-      for (const id of idsAfectados) {
-        bloqueosPorEspacio.set(id, [...(bloqueosPorEspacio.get(id) ?? []), b]);
-      }
+    // Cada espacio ve, además de sus propios bloqueos, los de sus espacios
+    // relacionados (rd_espacio_conflicto) — así "Piscina Municipal (completa)"
+    // refleja la colación/mantención cargada en Espacio 1 y 2 sin necesitar una
+    // fila duplicada en rd_bloqueo (ver bloqueosConEspejo en disponibilidad.ts).
+    const bloqueosPorEspacio = new Map<string, RdBloqueo[]>();
+    for (const espacio of espaciosDelRecinto) {
+      bloqueosPorEspacio.set(espacio.id, bloqueosConEspejo(espacio.id, recintoId, bloqueosDia, conflictos));
     }
+    const bloqueosDelRecinto = [...bloqueosPorEspacio.values()].flat();
 
     const disponibilidad = Object.fromEntries(
       calcularDisponibilidad({
@@ -129,9 +134,9 @@ export default async function ProgramacionPage({
       getAsignacionesEntreFechas(dias[0], dias[6], relacionadosIds),
       getBloqueosEntreFechas(dias[0], dias[6]),
     ]);
-    const bloqueosDelEspacio = bloqueosSemana.filter(
-      (b) => b.espacio_id === espacioSemanaId || (!b.espacio_id && b.recinto_id === recintoId)
-    );
+    // Igual criterio que en la vista Día: los bloqueos de los espacios
+    // relacionados se reflejan acá también (ver bloqueosConEspejo).
+    const bloqueosDelEspacio = bloqueosConEspejo(espacioSemanaId ?? "", recintoId, bloqueosSemana, conflictos);
 
     subtitulo = `Semana del ${formatFechaCorta(dias[0])} al ${formatFechaCorta(dias[6])}`;
     cuerpo = espacioSemanaId ? (
