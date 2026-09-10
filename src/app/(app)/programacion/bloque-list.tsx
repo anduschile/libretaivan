@@ -3,13 +3,32 @@
 import { useState } from "react";
 import { ChevronDown, Clock, Lock, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { colorBordeEntidad, ASIGNACION_TIPO_LABEL, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
+import {
+  colorBordeEntidad,
+  mensajeEspejoCorto,
+  mensajeEspejoLargo,
+  ASIGNACION_TIPO_LABEL,
+  BLOQUEO_MOTIVO_LABEL,
+  TIPO_COLOR_TEXTO,
+} from "@/lib/db/domain";
 import { EspacioTipoIcon } from "@/components/ui/tipo-icon";
 import { horaCorta } from "@/lib/date";
 import { BloqueActions } from "./bloque-actions";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
-import type { RdBloqueo, RdEspacio, RdEspacioConflicto } from "@/lib/db/types";
+import type { RdBloqueo, RdEspacio, RdEspacioConflicto, RecintoTipo } from "@/lib/db/types";
 import type { VentanaDisponible } from "@/lib/disponibilidad";
+
+// Agrupa asignaciones "espejo" que comparten exactamente el mismo horario en una sola
+// tarjeta con los nombres de todas las entidades (ver bloque-grid.tsx).
+function agruparPorHorario(items: AsignacionConDetalle[]): AsignacionConDetalle[][] {
+  const grupos = new Map<string, AsignacionConDetalle[]>();
+  for (const a of items) {
+    const key = `${a.hora_inicio}|${a.hora_fin}`;
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key)!.push(a);
+  }
+  return [...grupos.values()];
+}
 
 export function BloqueList({
   espacios,
@@ -19,6 +38,7 @@ export function BloqueList({
   disponibilidad,
   fechaPasada,
   recintoId,
+  tipoRecinto,
   onSlotClick,
   onAsignacionClick,
 }: {
@@ -29,6 +49,7 @@ export function BloqueList({
   disponibilidad: Record<string, VentanaDisponible[]>;
   fechaPasada: boolean;
   recintoId: string;
+  tipoRecinto: RecintoTipo;
   onSlotClick: (espacioId: string, horaInicio: string, horaFinDisponibleHasta: string) => void;
   onAsignacionClick: (asignacion: AsignacionConDetalle) => void;
 }) {
@@ -107,28 +128,34 @@ export function BloqueList({
               )}
 
               {!bloqueoDiaCompleto &&
-                espejos.map((a) => (
-                  <Card
-                    key={`espejo-${a.id}`}
-                    borderColorClass="border-l-gray-400"
-                    className="flex items-start gap-3"
-                    onClick={() =>
-                      window.alert(
-                        `Este espacio no está disponible: la cancha está dividida y en uso por ${a.entidad?.nombre ?? "otra organización"} de ${horaCorta(
-                          a.hora_inicio
-                        )} a ${horaCorta(a.hora_fin)}.`
-                      )
-                    }
-                  >
-                    <Lock size={16} className="mt-0.5 shrink-0 text-gray-400" />
-                    <div>
-                      <p className="text-sm font-medium text-[var(--color-text)]">
-                        Ocupada — cancha dividida en uso ({horaCorta(a.hora_inicio)}–{horaCorta(a.hora_fin)})
-                      </p>
-                      <p className="text-xs text-[var(--color-text-muted)]">{a.entidad?.nombre ?? "—"}</p>
-                    </div>
-                  </Card>
-                ))}
+                agruparPorHorario(espejos).map((grupo) => {
+                  const primero = grupo[0];
+                  const nombresEntidades = grupo.map((a) => a.entidad?.nombre ?? "—");
+                  const mensajeLargo = mensajeEspejoLargo(tipoRecinto, nombresEntidades);
+                  return (
+                    <Card
+                      key={`espejo-${primero.id}`}
+                      borderColorClass="border-l-gray-400"
+                      className="flex items-start gap-3"
+                      onClick={() =>
+                        window.alert(
+                          `Este espacio no está disponible: ${mensajeLargo.toLowerCase()} (${horaCorta(
+                            primero.hora_inicio
+                          )} a ${horaCorta(primero.hora_fin)}).`
+                        )
+                      }
+                    >
+                      <Lock size={16} className="mt-0.5 shrink-0 text-gray-400" />
+                      <div>
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {mensajeEspejoCorto(tipoRecinto, nombresEntidades)} ({horaCorta(primero.hora_inicio)}–
+                          {horaCorta(primero.hora_fin)})
+                        </p>
+                        <p className="text-xs text-[var(--color-text-muted)]">{nombresEntidades.join(" y ")}</p>
+                      </div>
+                    </Card>
+                  );
+                })}
 
               {asignacionesEspacio.map((a) => (
                 <Card

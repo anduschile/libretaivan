@@ -1,10 +1,10 @@
 "use client";
 
 import { Lock } from "lucide-react";
-import { colorBordeEntidad, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
+import { colorBordeEntidad, mensajeEspejoCorto, mensajeEspejoLargo, BLOQUEO_MOTIVO_LABEL, TIPO_COLOR_TEXTO } from "@/lib/db/domain";
 import { horaCorta, hoyISO } from "@/lib/date";
 import type { AsignacionConDetalle } from "@/lib/data/queries";
-import type { RdBloqueo } from "@/lib/db/types";
+import type { RdBloqueo, RecintoTipo } from "@/lib/db/types";
 
 const HORA_INICIO_GRILLA = 8 * 60; // 08:00
 const HORA_FIN_GRILLA = 23 * 60; // 23:00
@@ -70,6 +70,7 @@ export function SemanaGrid({
   asignacionesEspejo,
   bloqueos,
   recintoId,
+  tipoRecinto,
   onSlotClick,
   onAsignacionClick,
 }: {
@@ -79,6 +80,7 @@ export function SemanaGrid({
   asignacionesEspejo: AsignacionConDetalle[];
   bloqueos: RdBloqueo[];
   recintoId: string;
+  tipoRecinto: RecintoTipo;
   onSlotClick: (fecha: string, horaInicio: string, horaFinDisponibleHasta: string) => void;
   onAsignacionClick: (asignacion: AsignacionConDetalle) => void;
 }) {
@@ -206,23 +208,24 @@ export function SemanaGrid({
             if (bloqueo && bloqueaMinuto(bloqueo, inicio)) return null;
             const filaInicio = Math.floor((inicio - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
             const filaFin = Math.ceil((fin - HORA_INICIO_GRILLA) / PASO_MIN) + 2;
-            const nombres = grupo.map((a) => a.entidad?.nombre ?? "—").join(" y ");
+            const nombresEntidades = grupo.map((a) => a.entidad?.nombre ?? "—");
+            const mensajeLargo = mensajeEspejoLargo(tipoRecinto, nombresEntidades);
             return (
               <div
                 key={`espejo-${fecha}-${primero.hora_inicio}`}
                 className="m-0.5 flex min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border-l-4 border-l-gray-400 bg-[var(--color-bg)] px-1 py-1 text-center text-[10px] text-[var(--color-text-muted)]"
                 style={{ gridColumn: i + 2, gridRow: `${filaInicio} / ${filaFin}` }}
-                title={`Ocupada — cancha dividida en uso: ${nombres}`}
+                title={mensajeLargo}
                 onClick={() =>
                   window.alert(
-                    `Este espacio no está disponible: la cancha está dividida y en uso por ${nombres} de ${horaCorta(
+                    `Este espacio no está disponible: ${mensajeLargo.toLowerCase()} (${horaCorta(
                       primero.hora_inicio
-                    )} a ${horaCorta(primero.hora_fin)}.`
+                    )} a ${horaCorta(primero.hora_fin)}).`
                   )
                 }
               >
                 <Lock size={12} className="shrink-0 text-gray-400" />
-                <span className="w-full truncate font-medium">Ocupada</span>
+                <span className="w-full truncate font-medium">{mensajeEspejoCorto(tipoRecinto, nombresEntidades)}</span>
               </div>
             );
           });

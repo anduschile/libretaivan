@@ -45,6 +45,7 @@ export function ProgramacionInteractive({
   vistaProps: DiaProps | SemanaProps;
 }) {
   const [sheet, setSheet] = useState<{ open: boolean; prefill?: AsignarPrefill }>({ open: false });
+  const tipoRecinto = recintos.find((r) => r.id === recintoId)?.tipo ?? "polideportivo";
 
   function abrirVacio() {
     const espacioPorDefecto = vistaProps.vista === "semana" ? vistaProps.espacioSemanaId : undefined;
@@ -99,6 +100,7 @@ export function ProgramacionInteractive({
             disponibilidad={vistaProps.disponibilidad}
             fechaPasada={vistaProps.fechaPasada}
             recintoId={recintoId}
+            tipoRecinto={tipoRecinto}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}
             onAsignacionClick={abrirEdicion}
           />
@@ -108,6 +110,7 @@ export function ProgramacionInteractive({
             bloqueos={vistaProps.bloqueos}
             conflictos={vistaProps.conflictos}
             recintoId={recintoId}
+            tipoRecinto={tipoRecinto}
             onSlotClick={(espacioId, horaInicio, hasta) => abrirConHueco(espacioId, fecha, horaInicio, hasta)}
             onAsignacionClick={abrirEdicion}
           />
@@ -120,6 +123,7 @@ export function ProgramacionInteractive({
           asignacionesEspejo={vistaProps.asignacionesEspejo}
           bloqueos={vistaProps.bloqueos}
           recintoId={recintoId}
+          tipoRecinto={tipoRecinto}
           onSlotClick={(fechaBloque, horaInicio, hasta) =>
             abrirConHueco(vistaProps.espacioSemanaId, fechaBloque, horaInicio, hasta)
           }

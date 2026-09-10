@@ -95,6 +95,31 @@ export function colorTextoEntidad(tipo: EntidadTipo): string {
   return TIPO_COLOR_TEXTO[tipo] ?? "text-gray-400";
 }
 
+// Mensajes del "espejo" de conflicto (Cancha Principal/Transversales, Piscina
+// completa/Espacio 1-2): el sustantivo depende del tipo de recinto, y el mensaje
+// depende de si solo uno de los espacios relacionados está ocupado (el conjunto no se
+// puede usar completo, pero no está realmente "dividido") o si ambos lo están a la vez
+// (uso genuinamente dividido).
+function sustantivoRecinto(tipo: RecintoTipo): string {
+  return tipo === "piscina" ? "piscina" : "cancha";
+}
+
+export function mensajeEspejoCorto(tipo: RecintoTipo, nombresEntidades: string[]): string {
+  const sustantivo = sustantivoRecinto(tipo);
+  if (nombresEntidades.length >= 2) {
+    return `${sustantivo.charAt(0).toUpperCase()}${sustantivo.slice(1)} dividida`;
+  }
+  return `No disponible — ${sustantivo} completa`;
+}
+
+export function mensajeEspejoLargo(tipo: RecintoTipo, nombresEntidades: string[]): string {
+  const sustantivo = sustantivoRecinto(tipo);
+  if (nombresEntidades.length >= 2) {
+    return `${sustantivo.charAt(0).toUpperCase()}${sustantivo.slice(1)} dividida en uso: ${nombresEntidades.join(" y ")}`;
+  }
+  return `No disponible como ${sustantivo} completa — en uso: ${nombresEntidades[0] ?? "otra organización"}`;
+}
+
 export function diaSemanaISO(fecha: Date): number {
   // getDay(): 0=domingo..6=sábado → convertir a 1=lunes..7=domingo
   const d = fecha.getDay();
