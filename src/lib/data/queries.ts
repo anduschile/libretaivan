@@ -136,6 +136,65 @@ export async function getAsignacionesPorEspacioYRango(
   return data ?? [];
 }
 
+export type AsignacionParaEstadisticas = {
+  entidad_id: string | null;
+  entidad_nombre: string | null;
+  entidad_tipo: string | null;
+  recinto_id: string | null;
+  recinto_nombre: string | null;
+};
+
+/**
+ * Trae, para el panel de Estadísticas, una fila liviana por cada asignación
+ * confirmada del rango (solo los campos para agrupar por entidad/recinto — nada de
+ * hora_inicio/hora_fin, cada fila ya representa 1 hora). Pagina explícitamente en
+ * bloques de 1000 filas: el rango de fechas es libre (no acotado a una semana como el
+ * resto de la app), y un mes cualquiera de esta carga ya supera las 1000 filas — sin
+ * paginar, PostgREST corta en 1000 y los totales del panel saldrían mal.
+ */
+export async function getAsignacionesParaEstadisticas(
+  desde: string,
+  hasta: string
+): Promise<AsignacionParaEstadisticas[]> {
+  const supabase = await createClient();
+  const TAMANO_PAGINA = 1000;
+  const filas: AsignacionParaEstadisticas[] = [];
+  let desde_offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("rd_asignacion")
+      .select(
+        "entidad_id, entidad:rd_entidad(nombre, tipo), espacio:rd_espacio(recinto_id, recinto:rd_recinto(nombre))"
+      )
+      .eq("estado", "confirmada")
+      .gte("fecha", desde)
+      .lte("fecha", hasta)
+      .range(desde_offset, desde_offset + TAMANO_PAGINA - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const fila of data as unknown as Array<{
+      entidad_id: string | null;
+      entidad: { nombre: string; tipo: string } | null;
+      espacio: { recinto_id: string; recinto: { nombre: string } | null } | null;
+    }>) {
+      filas.push({
+        entidad_id: fila.entidad_id,
+        entidad_nombre: fila.entidad?.nombre ?? null,
+        entidad_tipo: fila.entidad?.tipo ?? null,
+        recinto_id: fila.espacio?.recinto_id ?? null,
+        recinto_nombre: fila.espacio?.recinto?.nombre ?? null,
+      });
+    }
+
+    if (data.length < TAMANO_PAGINA) break;
+    desde_offset += TAMANO_PAGINA;
+  }
+
+  return filas;
+}
+
 export async function getBloqueosEntreFechas(desde: string, hasta: string): Promise<RdBloqueo[]> {
   const supabase = await createClient();
   const { data, error } = await supabase

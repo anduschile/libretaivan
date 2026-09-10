@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Home, LogOut, MapPinned, Users } from "lucide-react";
+import { BarChart3, CalendarDays, Home, LogOut, MapPinned, Users } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 const NAV_ITEMS = [
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/programacion", label: "Programación", icon: CalendarDays },
   { href: "/recintos", label: "Recintos", icon: MapPinned },
   { href: "/organizaciones", label: "Organizaciones", icon: Users },
+  { href: "/estadisticas", label: "Estadísticas", icon: BarChart3 },
 ];
 
 export function AppShell({
